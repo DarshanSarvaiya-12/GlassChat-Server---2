@@ -10,7 +10,6 @@ const {
   getOrCreateCustomer, 
   updateCustomer,
   getGroqReply,
-  SYSTEM_PROMPT,
   calculateTotals 
 } = require('./services');
 
@@ -44,62 +43,59 @@ app.post('/webhook', async (req, res) => {
     const userPhone = messageObj.from;
     const msgType = messageObj.type;
 
-    let customer = await getOrCreateCustomer(userPhone);
+    await getOrCreateCustomer(userPhone);
 
-    // Button Reply Handler
+    // Button Handler
     if (msgType === 'interactive') {
       const buttonId = messageObj.interactive?.button_reply?.id;
       if (buttonId?.startsWith('size_')) {
-        const sizes = { size_s: 'S', size_m: 'M', size_l: 'L', size_xl: 'XL', size_xxl: 'XXL' };
-        const size = sizes[buttonId];
+        const sizeMap = { size_s: 'S', size_m: 'M', size_l: 'L', size_xl: 'XL', size_xxl: 'XXL' };
+        const size = sizeMap[buttonId];
 
         await updateCustomer(userPhone, {
           'session.selectedSize': size,
           'session.stage': 'browsing'
         });
 
-        await sendTextMessage(userPhone, `✅ Size *${size}* selected!\n\nHere is our collection 👇`);
+        await sendTextMessage(userPhone, `Great! You selected *${size}* size 👕\n\nHere is our collection:`);
 
         for (const code in products) {
           const p = products[code];
           await require('./services').sendImageMessage(userPhone, p.image_url, p.caption);
-          await require('./services').delay(800);
+          await require('./services').delay(700);
         }
 
-        await sendTextMessage(userPhone, "Send the **Code** (like TS01) of the T-Shirt you like.");
+        await sendTextMessage(userPhone, "Please send the **Code** (e.g. TS01) of the T-Shirt you want.");
       }
     }
 
     // Text Message Handler
     if (msgType === 'text') {
       const userText = messageObj.text.body.trim();
-      const lowerText = userText.toLowerCase();
+      let customer = await Customer.findOne({ phone: userPhone });
 
-      customer = await Customer.findOne({ phone: userPhone });
-
-      // AI Powered Reply
       const history = customer.session.conversationHistory || [];
       history.push({ role: "user", content: userText });
 
-      const aiResponse = await getGroqReply(history, SYSTEM_PROMPT);
+      const aiReply = await getGroqReply(history);
 
-      // Save conversation
-      history.push({ role: "assistant", content: aiResponse });
+      // Save history
+      history.push({ role: "assistant", content: aiReply });
       await updateCustomer(userPhone, { 
-        'session.conversationHistory': history.slice(-6)   // keep last 3 exchanges
+        'session.conversationHistory': history.slice(-8) 
       });
 
-      await sendTextMessage(userPhone, aiResponse);
+      await sendTextMessage(userPhone, aiReply);
     }
 
     res.sendStatus(200);
   } catch (error) {
-    console.error("Error:", error.message);
+    console.error("Server Error:", error.message);
     res.sendStatus(200);
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 GlassChat Server running on http://localhost:${PORT}`);
+  console.log(`🚀 GlassChat Server is running on port ${PORT}`);
 });
